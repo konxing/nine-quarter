@@ -17,10 +17,13 @@ _BAR_COLS = ("code,date,open,high,low,close,preclose,volume,amount,turn,"
              "trade_status,pct_chg,pe_ttm,pb_mrq,is_st")
 
 
-def _load_recent_bars(conn: sqlite3.Connection, cutoff: str) -> dict[str, list[dict]]:
+def _load_recent_bars(conn: sqlite3.Connection, cutoff: str,
+                      as_of: str | None = None) -> dict[str, list[dict]]:
+    """Load bars only up to the decision date; never read future rows."""
+    as_of = as_of or cutoff
     rows = conn.execute(
-        f"SELECT {_BAR_COLS} FROM daily_bars WHERE date>=? ORDER BY code,date",
-        (cutoff,),
+        f"SELECT {_BAR_COLS} FROM daily_bars WHERE date>=? AND date<=? ORDER BY code,date",
+        (cutoff, as_of),
     ).fetchall()
     grouped: dict[str, list[dict]] = {}
     for r in rows:
@@ -46,11 +49,12 @@ def run_prescreen(
         for r in conn.execute(
             "SELECT code,name,industry,status,total_mv FROM stocks WHERE type='1'")
     }
-    bars_by_code = _load_recent_bars(conn, cutoff)
+    bars_by_code = _load_recent_bars(conn, cutoff, expected_date)
 
     idx_rows = conn.execute(
         "SELECT date,code,close,preclose,volume,amount,pct_chg FROM index_bars "
-        "WHERE code=? AND date>=? ORDER BY date", (index_code, cutoff),
+        "WHERE code=? AND date>=? AND date<=? ORDER BY date",
+        (index_code, cutoff, expected_date),
     ).fetchall()
     mkt = market_environment([dict(r) for r in idx_rows])
 

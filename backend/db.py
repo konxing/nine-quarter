@@ -136,6 +136,15 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at TEXT NOT NULL
 );
 
+-- A failed order is counted at most once per trading date, regardless of scheduler retries.
+-- Separate table avoids rewriting existing orders when upgrading an older SQLite database.
+CREATE TABLE IF NOT EXISTS order_attempts (
+    order_id INTEGER NOT NULL,
+    attempt_date TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (order_id, attempt_date)
+);
+
 CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER NOT NULL,

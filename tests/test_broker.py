@@ -148,3 +148,31 @@ class TestSellFill:
         # 撮合日 2026-11-10 == 买入日 -> 不可卖
         process_pending_orders(conn, "2026-11-10", {"sh.600000": _bar()})
         assert _status(conn, oid) == "pending"
+
+class TestRetryIntegrity:
+    def test_failed_attempt_only_once_per_trading_date(self, conn):
+        oid = _order(conn)
+        for _ in range(4):
+            process_pending_orders(conn, "2026-11-10", {}, expire_days=3)
+        row = conn.execute(
+            "SELECT status,wait_days FROM orders WHERE id=?", (oid,)).fetchone()
+        assert (row["status"], row["wait_days"]) == ("pending", 1)
+        process_pending_orders(conn, "2026-11-11", {}, expire_days=3)
+        process_pending_orders(conn, "2026-11-12", {}, expire_days=3)
+        assert _status(conn, oid) == "expired"
+        assert conn.execute(
+            "SELECT COUNT(*) n FROM order_attempts WHERE order_id=?", (oid,)
+        ).fetchone()["n"] == 3
+
+    def test_failed_trade_write_rolls_back_account_and_order(self, conn):
+        oid = _order(conn)
+        starting_cash = get_account(conn)["cash"]
+        conn.execute("""
+            CREATE TRIGGER reject_trade BEFORE INSERT ON trades
+            BEGIN SELECT RAISE(ABORT, 'forced ledger failure'); END;
+        """)
+        with pytest.raises(sqlite3.DatabaseError, match="forced ledger failure"):
+            process_pending_orders(conn, "2026-11-10", {"sh.600000": _bar()})
+        assert get_account(conn)["cash"] == starting_cash
+        assert conn.execute("SELECT COUNT(*) n FROM position_lots").fetchone()["n"] == 0
+        assert _status(conn, oid) == "pending"
