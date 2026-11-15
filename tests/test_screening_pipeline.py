@@ -78,3 +78,18 @@ class TestPrescreenPipeline:
         b = run_prescreen(conn, expected, index_code="sh.000300")
         assert [c["code"] for c in a["candidates"]] == [c["code"] for c in b["candidates"]]
         assert [c["score"] for c in a["candidates"]] == [c["score"] for c in b["candidates"]]
+
+def test_historical_screen_ignores_future_stock_and_index_bars(conn):
+    from backend.screening.pipeline import _load_recent_bars
+    earlier = "2026-11-09"
+    later = "2026-11-10"
+    conn.execute(
+        "INSERT INTO daily_bars(code,date,open,high,low,close,preclose,volume,"
+        "amount,trade_status,pct_chg,is_st) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("sh.600000", earlier, 10, 11, 9, 10, 10, 1000, 100000, 1, 0, 0))
+    conn.execute(
+        "INSERT INTO daily_bars(code,date,open,high,low,close,preclose,volume,"
+        "amount,trade_status,pct_chg,is_st) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("sh.600000", later, 15, 16, 14, 15, 10, 1000, 100000, 1, 50, 0))
+    rows = _load_recent_bars(conn, earlier, earlier)
+    assert [b["date"] for b in rows["sh.600000"]] == [earlier]
