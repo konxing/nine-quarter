@@ -48,19 +48,27 @@ def create_order(conn: sqlite3.Connection, decision_date: str, code: str,
     return cur.lastrowid
 
 
-def _wait_or_expire(conn, order, expire_days: int) -> str:
-    wait = order["wait_days"] + 1
-    if wait >= expire_days:
+def _wait_or_expire(conn, order, expire_days: int, trade_date: str,
+                    reason: str) -> str:
+    """Count failed execution attempts by distinct trading date, not scheduler retry.
+
+    Existing databases are supported: use the legacy wait_days counter as the
+    baseline and store all future attempts in order_attempts.
+    """
+    with conn:
+        attempt = conn.execute(
+            "INSERT OR IGNORE INTO order_attempts(order_id, attempt_date, reason) "
+            "VALUES (?,?,?)", (order["id"], trade_date, reason))
+        if not attempt.rowcount:
+            current = conn.execute(
+                "SELECT status FROM orders WHERE id=?", (order["id"],)).fetchone()
+            return current["status"] if current else "pending"
+        wait = order["wait_days"] + 1
+        status = "expired" if wait >= expire_days else "pending"
         conn.execute(
-            "UPDATE orders SET status='expired', wait_days=?, updated_at=datetime('now') "
-            "WHERE id=?", (wait, order["id"]))
-        conn.commit()
-        return "expired"
-    conn.execute(
-        "UPDATE orders SET wait_days=?, updated_at=datetime('now') WHERE id=?",
-        (wait, order["id"]))
-    conn.commit()
-    return "pending"
+            "UPDATE orders SET status=?, wait_days=?, updated_at=datetime('now') "
+            "WHERE id=?", (status, wait, order["id"]))
+    return status
 
 
 def _record_trade(conn, order_id, code, side, trade_date, price, shares,
@@ -105,7 +113,7 @@ def process_pending_orders(conn: sqlite3.Connection, trade_date: str,
         code = o["code"]
         bar = bars.get(code)
         if bar is None:
-            status = _wait_or_expire(conn, o, expire_days)
+            status = _wait_or_expire(conn, o, expire_days, trade_date, "无当日行情")
             events.append(dict(order_id=o["id"], code=code, action=status,
                                reason="无当日行情"))
             continue
@@ -113,45 +121,46 @@ def process_pending_orders(conn: sqlite3.Connection, trade_date: str,
         if o["side"] == "buy":
             ok, price, reason = fill_check_buy(code, bar, is_st)
             if not ok:
-                status = _wait_or_expire(conn, o, expire_days)
+                status = _wait_or_expire(conn, o, expire_days, trade_date, reason)
                 events.append(dict(order_id=o["id"], code=code, action=status, reason=reason))
                 continue
             shares = _affordable_buy_shares(conn, code, price, o["planned_shares"], cost_kwargs)
             if shares <= 0:
-                status = _wait_or_expire(conn, o, expire_days)
+                status = _wait_or_expire(conn, o, expire_days, trade_date, "现金不足")
                 events.append(dict(order_id=o["id"], code=code, action=status, reason="现金不足"))
                 continue
             costs = trade_costs(shares * price, "buy", **cost_kwargs)
-            record_buy(conn, code, trade_date, shares, price, costs)
-            _record_trade(conn, o["id"], code, "buy", trade_date, price, shares, costs, price_source)
-            conn.execute(
-                "UPDATE orders SET status='filled', filled_date=?, filled_price=?, "
-                "filled_shares=?, fees=?, updated_at=datetime('now') WHERE id=?",
-                (trade_date, price, shares, costs["total"], o["id"]))
-            conn.commit()
+            # Account movement, trade ledger, and order status must commit atomically.
+            with conn:
+                record_buy(conn, code, trade_date, shares, price, costs, commit=False)
+                _record_trade(conn, o["id"], code, "buy", trade_date, price, shares, costs, price_source)
+                conn.execute(
+                    "UPDATE orders SET status='filled', filled_date=?, filled_price=?, "
+                    "filled_shares=?, fees=?, updated_at=datetime('now') WHERE id=?",
+                    (trade_date, price, shares, costs["total"], o["id"]))
             events.append(dict(order_id=o["id"], code=code, action="filled",
                                side="buy", price=price, shares=shares))
         else:  # sell
             elig = eligible_shares(conn, code, trade_date)
             if elig <= 0:
-                status = _wait_or_expire(conn, o, expire_days)
+                status = _wait_or_expire(conn, o, expire_days, trade_date, "T+1 可卖不足")
                 events.append(dict(order_id=o["id"], code=code, action=status,
                                    reason="T+1 可卖不足"))
                 continue
             ok, price, reason = fill_check_sell(code, bar, is_st)
             if not ok:
-                status = _wait_or_expire(conn, o, expire_days)
+                status = _wait_or_expire(conn, o, expire_days, trade_date, reason)
                 events.append(dict(order_id=o["id"], code=code, action=status, reason=reason))
                 continue
             shares = min(o["planned_shares"], elig)
             costs = trade_costs(shares * price, "sell", **cost_kwargs)
-            record_sell(conn, code, trade_date, shares, price, costs)
-            _record_trade(conn, o["id"], code, "sell", trade_date, price, shares, costs, price_source)
-            conn.execute(
-                "UPDATE orders SET status='filled', filled_date=?, filled_price=?, "
-                "filled_shares=?, fees=?, updated_at=datetime('now') WHERE id=?",
-                (trade_date, price, shares, costs["total"], o["id"]))
-            conn.commit()
+            with conn:
+                record_sell(conn, code, trade_date, shares, price, costs, commit=False)
+                _record_trade(conn, o["id"], code, "sell", trade_date, price, shares, costs, price_source)
+                conn.execute(
+                    "UPDATE orders SET status='filled', filled_date=?, filled_price=?, "
+                    "filled_shares=?, fees=?, updated_at=datetime('now') WHERE id=?",
+                    (trade_date, price, shares, costs["total"], o["id"]))
             events.append(dict(order_id=o["id"], code=code, action="filled",
                                side="sell", price=price, shares=shares))
     return events
