@@ -46,7 +46,7 @@ def eligible_shares(conn: sqlite3.Connection, code: str, date: str) -> int:
 
 
 def record_buy(conn: sqlite3.Connection, code: str, date: str, shares: int,
-               price: float, costs: dict) -> None:
+               price: float, costs: dict, *, commit: bool = True) -> None:
     if shares <= 0:
         raise ValueError("买入股数必须为正")
     amount = shares * price
@@ -59,11 +59,12 @@ def record_buy(conn: sqlite3.Connection, code: str, date: str, shares: int,
     conn.execute(
         "INSERT INTO position_lots(code,buy_date,shares,cost_amount) VALUES (?,?,?,?)",
         (code, date, shares, total_cost))
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def record_sell(conn: sqlite3.Connection, code: str, date: str, shares: int,
-                price: float, costs: dict) -> float:
+                price: float, costs: dict, *, commit: bool = True) -> float:
     """FIFO 卖出（仅 T+1 可卖批次）。返回已实现盈亏。"""
     if shares <= 0:
         raise ValueError("卖出股数必须为正")
@@ -93,7 +94,8 @@ def record_sell(conn: sqlite3.Connection, code: str, date: str, shares: int,
         "UPDATE account SET cash=cash+?, realized_pnl=realized_pnl+?, "
         "updated_at=datetime('now') WHERE id=1", (net, realized))
     conn.execute("DELETE FROM position_lots WHERE shares<=0")
-    conn.commit()
+    if commit:
+        conn.commit()
     return realized
 
 
