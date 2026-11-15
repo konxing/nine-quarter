@@ -1,0 +1,12 @@
+# nine-quarter 后端依赖（个人非商业研究用途）
+baostock>=0.8.9
+akshare>=1.14.0
+pandas>=2.0
+numpy>=1.26
+fastapi>=0.110
+uvicorn>=0.29
+apscheduler>=3.10,<4
+httpx>=0.27
+python-dotenv>=1.0
+tzdata>=2024.1
+pytest>=8.0
