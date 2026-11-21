@@ -47,6 +47,14 @@ class TestDetect:
         (root / "frontend" / "node_modules" / "next").mkdir(parents=True)
         assert core.detect(root).node_modules is True
 
+    def test_npm_missing_is_reported(self, root, monkeypatch):
+        monkeypatch.setattr(core, "npm_executable", lambda: None)
+        assert core.detect(root).npm_ok is False
+
+    def test_npm_present_is_reported(self, root, monkeypatch):
+        monkeypatch.setattr(core, "npm_executable", lambda: "C:/node/npm.cmd")
+        assert core.detect(root).npm_ok is True
+
     def test_db_counts_read(self, root):
         db = root / "data" / "nine-quarter.db"
         db.parent.mkdir()

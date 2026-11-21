@@ -166,6 +166,7 @@ class Status:
     venv_python: Path | None = None
     python_deps: bool = False
     node_modules: bool = False
+    npm_ok: bool = False
     db_exists: bool = False
     bars: int = 0
     stocks: int = 0
@@ -175,8 +176,8 @@ class Status:
 
     @property
     def needs_setup(self) -> bool:
-        return not (self.python_deps and self.node_modules and self.bars > 0
-                    and self.ai.get("configured"))
+        return not (self.python_deps and self.node_modules and self.npm_ok
+                    and self.bars > 0 and self.ai.get("configured"))
 
 
 def detect(root: Path) -> Status:
@@ -199,6 +200,7 @@ def detect(root: Path) -> Status:
         root=root, venv_python=py,
         python_deps=python_deps_ok(py) if py else False,
         node_modules=(root / "frontend" / "node_modules" / "next").exists(),
+        npm_ok=npm_executable() is not None,
         db_exists=db_exists, bars=bars, stocks=stocks,
         ai=read_ai_config(root),
         backend_open=port_open(BACKEND_PORT),

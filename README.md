@@ -36,7 +36,7 @@ nine-quarter/
 ├── frontend/              Next.js 前端
 ├── launcher/              桌面启动器（Tkinter，首次引导 + 控制台）
 ├── build_exe.py           打包 nine-quarter.exe
-├── start.bat              不用 EXE 时的一键启动脚本
+├── build.bat              一键装依赖并打包 EXE（新机器只需跑这个）
 ├── data/nine-quarter.db   SQLite 数据库（运行时生成）
 ├── reports/               每日报告与复盘（运行时生成）
 ├── logs/                  日志（运行时生成）
@@ -45,112 +45,57 @@ nine-quarter/
 └── requirements.txt
 ```
 
-## 快速开始
+## 快速开始（Windows，两步）
 
-### 0. 一键启动（推荐）
+前置：Python 3.12（安装时勾选 Add to PATH）+ Node.js 20/22 LTS。
 
-双击根目录 **`nine-quarter.exe`**：
+1. **双击 `build.bat`**：一个脚本做完所有准备——创建 `.venv`、装后端依赖、装 PyInstaller、装前端依赖、打包出 `nine-quarter.exe`。
+2. **双击 `nine-quarter.exe`**：首次引导自动停在第一个未完成的步骤——① 环境 → ② 行情回填（约 15～20 分钟，可中断续跑）→ ③ AI 配置（地址/模型/Key，可测试连接，Key 只显示掩码）→ ④ 启动并打开浏览器。
 
-- **首次引导**：自动检测并停在第一个未完成的步骤——① 环境（`.venv`、后端依赖、前端依赖，可一键安装）→ ② 行情数据（`init` + `backfill`，可中断续跑）→ ③ AI 配置（地址/模型/Key，可测试连接，Key 只显示掩码）→ ④ 启动。已完成的步骤自动跳过。
-- **控制台**：状态灯（后端 8000 / 前端 3100 / AI / 数据）、启动与停止服务、打开页面与设置页、立即执行今日流程、补充行业市值、实时日志。
-- 关闭启动器时会询问是否一并停止服务，避免留下占用端口的僵尸进程。
-- 服务日志：`logs/launcher-backend.log`、`logs/launcher-frontend.log`。
-- 前提：本机已安装 Node.js（前端用 npm 启动）；Python 虚拟环境可由引导自动创建。
+以后每次启动只需双击 `nine-quarter.exe`。
 
-重新打包（改了启动器代码后）：
+启动器控制台提供：状态灯（后端 8000 / 前端 3100 / AI / 数据）、启动与停止服务、打开页面与设置页、立即执行今日流程、补充行业市值、实时日志。关闭启动器时会询问是否一并停止服务，避免留下占用端口的僵尸进程。
 
-```bash
-.venv\Scripts\python.exe build_exe.py
-```
+- 页面：`http://localhost:3100`　后端 API：`http://127.0.0.1:8000`
+- 服务日志：`logs/launcher-backend.log`、`logs/launcher-frontend.log`
+- 前端默认请求 `http://127.0.0.1:8000`，可用 `NEXT_PUBLIC_API_BASE` 覆盖
 
-不想用 EXE 时，可双击 `start.bat`（同样拉起后端 8000 + 前端 3100），或按下面手动执行。
+### AI 配置
 
-### 1. 后端
+引导第 3 步或页面 `http://localhost:3100/settings` 填写，保存到本机 SQLite，**立即生效、无需重启**，且优先于 `.env`：
 
-```bash
-cd D:\nine-quarter
-# 已为本项目创建虚拟环境 .venv（官方 Python 3.12）。如换机器：
-python -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
+- 接口地址：OpenAI 兼容地址，火山方舟为 `https://ark.cn-beijing.volces.com/api/v3`
+- 模型名：方舟推理接入点（`ep-xxxx`）或已开通的模型名，**必填**
+- API Key：若环境中已有 `ARK_API_KEY`，地址与 Key 会自动预填，通常只需填模型名
+- 未配置 AI 时系统照常运行，但不产生选股与订单（绝不伪造）
 
-# 配置：可先跳过，启动后在页面 http://localhost:3100/settings 里填 AI（见下）
-copy .env.example .env
+也可用 `.env`（复制 `.env.example`）：`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` / `AI_PROXY`（需要代理时显式填写，系统不读取 Windows 系统代理）。
 
-# 初始化 + 首次全量回填（约 5200 只股票 ×150 天，约 15～20 分钟，可中断重跑）
-.venv\Scripts\python.exe -m backend.cli init
-.venv\Scripts\python.exe -m backend.cli backfill
-
-# 补充个股行业/市值（约 30 分钟，可中断重跑；缺失时行业因子降级为中性）
-.venv\Scripts\python.exe -m backend.cli info
-
-# 启动后端（含自动调度器）
-.venv\Scripts\python.exe -m backend.cli serve --port 8000
-```
-
-### 2. 前端
-
-开发模式（页面热更新）：
+### 命令行（可选，运维/调试）
 
 ```bash
-cd D:\nine-quarter\frontend
-npm install
-npm run dev      # http://localhost:3100
-# 或 npm run build && npm start（生产模式，同样 3100）
+.venv\Scripts\python.exe -m backend.cli init      # 初始化数据库
+.venv\Scripts\python.exe -m backend.cli backfill  # 全量回填（可中断续跑）
+.venv\Scripts\python.exe -m backend.cli info      # 补充行业/市值（可跳过，行业因子降级为中性）
+.venv\Scripts\python.exe -m backend.cli daily     # 手动执行当日流程
+.venv\Scripts\python.exe -m backend.cli morning   # 手动处理昨日订单
+.venv\Scripts\python.exe -m backend.cli status    # 查看数据与任务状态
+.venv\Scripts\python.exe -m backend.cli serve --port 8000   # 只起后端（含调度器）
 ```
 
-**一键同时拉起前后端**：双击根目录 `start.bat`，会各开一个窗口（后端 8000、前端 3100），浏览器打开 `http://localhost:3100`。
-
-前端默认请求 `http://127.0.0.1:8000`，可用环境变量 `NEXT_PUBLIC_API_BASE` 覆盖。
-
-### 3. AI 配置（重要）
-
-两种方式，页面内配置优先于 `.env`：
-
-1. **页面内（推荐）**：后端与前端启动后打开 `http://localhost:3100/settings`，
-   填接口地址、模型名、API Key，可先“测试连接”，再“保存并生效”。保存到本机
-   SQLite，**无需重启后端**；页面只显示 Key 掩码。若环境中已有 `ARK_API_KEY`，
-   地址和 Key 会自动预填，通常只需填模型名。
-2. **`.env`**：
-
-- `AI_BASE_URL`：OpenAI 兼容地址。火山方舟为 `https://ark.cn-beijing.volces.com/api/v3`。
-- `AI_API_KEY`：密钥。**若环境中已有 `ARK_API_KEY`，未填这两项时会自动复用方舟地址与密钥。**
-- `AI_MODEL`：**必填**。填你的方舟推理接入点（`ep-xxxx`）或已开通的模型名。未填时系统正常运行但 AI 选股/复盘降级（不产生主观结论与订单，绝不伪造）。
-- `AI_PROXY`：如需代理访问 AI 接口显式填写（系统不读取 Windows 系统代理）。
-
-页面保存的配置在下次启动时也会自动加载并覆盖 `.env`；测试连接只发一次极小请求，不落库。
+改了启动器代码后重新打包：再跑一次 `build.bat`，或 `.venv\Scripts\python.exe build_exe.py`。
 
 ## 新电脑克隆后如何启动
 
-仓库里**不包含**虚拟环境、`node_modules`、数据库、日志、报告、`.env` 和打包好的 EXE（都在 `.gitignore` 里），所以新机器需要装一次依赖并回填一次数据。
-
-**前置**：Windows + Python 3.12（安装时勾选 Add to PATH）+ Node.js 20/22 LTS。
-
 ```bat
 git clone https://github.com/konxing/nine-quarter.git
-cd nine-quarter
-
-python -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-
-cd frontend
-npm install
-cd ..
 ```
 
-然后二选一：
+然后**双击 `build.bat`，再双击 `nine-quarter.exe`**，跟着引导走完即可。就这两步。
 
-- **图形启动器（推荐）**：`.venv\Scripts\python.exe -m pip install pyinstaller` → `.venv\Scripts\python.exe build_exe.py` → 双击生成的 `nine-quarter.exe`，按引导走完「环境 → 数据 → AI → 启动」。
-- **脚本启动**：双击 `start.bat`（后端 8000 + 前端 3100），浏览器打开 `http://localhost:3100/settings` 配 AI；数据回填另开窗口执行：
+仓库里不含 `.venv`、`node_modules`、数据库、日志、报告、`.env` 和 EXE（都在 `.gitignore` 里）：`build.bat` 负责装依赖并打包，启动器引导负责回填数据与配置 AI。
 
-```bat
-.venv\Scripts\python.exe -m backend.cli init
-.venv\Scripts\python.exe -m backend.cli backfill
-.venv\Scripts\python.exe -m backend.cli info
-```
-
-回填约 15～20 分钟（可中断续跑），`info` 约 30 分钟（可跳过，行业因子会降级为中性）。之后每个交易日由后端内的调度器自动执行。
-
-> macOS/Linux：把 `.venv\Scripts\python.exe` 换成 `.venv/bin/python`，`start.bat` 换成分别执行 `serve` 与 `npm run dev`；EXE 打包仅面向 Windows。
+> macOS/Linux：`build.bat`/EXE 仅面向 Windows。其它平台手动执行 `python -m venv .venv`、`.venv/bin/python -m pip install -r requirements.txt`、`cd frontend && npm install`，再分别运行 `.venv/bin/python -m backend.cli serve --port 8000` 与 `npm run dev`。
 
 ## 每日自动流程（北京时间 Asia/Shanghai）
 

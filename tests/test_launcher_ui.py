@@ -32,7 +32,7 @@ def app(tmp_path, monkeypatch):
 
 def _status(root, **kw):
     st = core.Status(root=root, venv_python=root / ".venv" / "Scripts" / "python.exe",
-                     python_deps=True, node_modules=True, db_exists=True,
+                     python_deps=True, node_modules=True, npm_ok=True, db_exists=True,
                      bars=100, stocks=10,
                      ai={"configured": True, "model": "ep-1", "key_configured": True,
                          "key_masked": "****1234", "base_url": "https://x", "source": "db"})

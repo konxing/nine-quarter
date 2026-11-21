@@ -163,7 +163,7 @@ class App(tk.Tk):
     @staticmethod
     def _first_incomplete(st: core.Status) -> int:
         """引导直接停在第一个未完成的步骤，已完成的不再重复点。"""
-        if not (st.venv_python and st.python_deps and st.node_modules):
+        if not (st.venv_python and st.python_deps and st.node_modules and st.npm_ok):
             return 0
         if st.bars <= 0:
             return 1
@@ -217,7 +217,11 @@ class App(tk.Tk):
                         size=9, color=SUB).pack(anchor="w", pady=(2, 10))
             self._pill(box, "虚拟环境 .venv", st.venv_python is not None)
             self._pill(box, "后端依赖", st.python_deps)
+            self._pill(box, "Node.js / npm", st.npm_ok)
             self._pill(box, "前端依赖 node_modules", st.node_modules)
+            if not st.npm_ok:
+                self._label(box, "未检测到 npm：请先安装 Node.js 20/22 LTS（nodejs.org），"
+                                 "装完点「刷新状态」。", size=9, color=WARN).pack(anchor="w", pady=(8, 0))
             btns = tk.Frame(box, bg=CARD)
             btns.pack(fill="x", pady=(14, 0))
             self._button(btns, "一键准备环境", self._task_env, primary=True).pack(side="left")
